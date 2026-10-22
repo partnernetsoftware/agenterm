@@ -2,8 +2,8 @@
 
 Status: **skipped without a public v0.1.17 release on 2026-09-20; retained as
 the record of the attempted release train**
-Product owner: [`prd/PRD_02_18_roadmap.md`](../prd/PRD_02_18_roadmap.md)
-Delivery owner: [`prd/PRD_02_17_delivery_quality.md`](../prd/PRD_02_17_delivery_quality.md)
+Product owner: [`prd/PRD_02_18_roadmap.md`](../../prd/PRD_02_18_roadmap.md)
+Delivery owner: [`prd/PRD_02_17_delivery_quality.md`](../../prd/PRD_02_17_delivery_quality.md)
 
 The old v0.1.17 plan remains archived as a truthful record of a train that was
 never started. The product owner reopened the number on 2026-09-19 for a new,

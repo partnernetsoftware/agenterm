@@ -121,4 +121,4 @@ flowchart LR
   the host usable.
 - Engine or task failure never silently changes backend, target or authority.
 
-Current version assignment: [`plan/plan-v0.1.18.md`](../plan/plan-v0.1.18.md).
+Current version assignment: [`plan/archive/plan-v0.1.18.md`](../plan/archive/plan-v0.1.18.md).

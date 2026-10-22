@@ -86,7 +86,7 @@ cargo fmt --all -- --check
 构建出的库没有 `catch_unwind` 围栏，只适合没有 C 边界的 Rust 内部消费者。
 
 > **命名**：产物文件名现在是 `libagenterm.{a,so,dylib}` / `agenterm.dll`，
-> 与 `plan/plan-v0.1.18.md` §14 一致（里程碑 17 完成改名）。**package 名仍是
+> 与 `plan/archive/plan-v0.1.18.md` §14 一致（里程碑 17 完成改名）。**package 名仍是
 > `agenterm-abi`**（Cargo 依赖声明用它）；**lib/crate 名是 `agenterm`**（Rust
 > `use agenterm::` 与产物文件名用它）。
 

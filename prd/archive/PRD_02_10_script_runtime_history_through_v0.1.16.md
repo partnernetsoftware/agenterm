@@ -1290,7 +1290,7 @@ layered deployment productization are **not** in v0.1.15 scope. Design SSOT:
     the same pack bytes are consumed by all six Base targets and App-only
     delivery does not rebuild the Base. Rh native packs remain Build/CI and
     general automation artifacts, not the product App portability fallback.
-    Current execution plan: [`plan/plan-v0.1.18.md`](../../plan/plan-v0.1.18.md).
+    Current execution plan: [`plan/plan-v0.1.18.md`](../../plan/archive/plan-v0.1.18.md).
     Chassis-layer split (thin L1 / Host ABI L2 / app L3) so Base CI stays cold:
     [`plan/refactor-chassis-l1-l2-l3.md`](../../plan/refactor-chassis-l1-l2-l3.md).
     The Chassis substrate is partial: the bounded L2 VM, versioned Host ABI,

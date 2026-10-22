@@ -1,8 +1,8 @@
 # AgenTerm v0.1.18 — agent-operable desktop
 
 Status: **published 2026-09-21; release evidence in
-[`docs/release-0.1.18-record.md`](../docs/release-0.1.18-record.md)**
-Product owner: [`prd/PRD_02_18_roadmap.md`](../prd/PRD_02_18_roadmap.md)
+[`docs/release-0.1.18-record.md`](../../docs/release-0.1.18-record.md)**
+Product owner: [`prd/PRD_02_18_roadmap.md`](../../prd/PRD_02_18_roadmap.md)
 Capability owners: PRD 28–32 and PRD 36
 
 The original v0.1.17 backlog remains archived and is not reused. On 2026-09-19

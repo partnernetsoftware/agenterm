@@ -9,38 +9,48 @@ local UTM/native qualification, GitHub payload, protected signing, Candidate,
 reputation, rehearsal and Promotion path; the exact evidence is in
 [`docs/release-0.1.18-record.md`](../docs/release-0.1.18-record.md). The user
 skipped v0.1.17 without a public release on 2026-09-20; its attempted train
-remains recorded in [`plan/plan-v0.1.17.md`](../plan/plan-v0.1.17.md).
+remains recorded in [`plan/archive/plan-v0.1.17-release-train.md`](../plan/archive/plan-v0.1.17-release-train.md).
 v0.1.19 planning and Candidate follow-up live in
-[`plan/plan-v0.1.19.md`](../plan/plan-v0.1.19.md) and
+[`plan/archive/plan-v0.1.19.md`](../plan/archive/plan-v0.1.19.md) and
 [`plan/plan-candidate-gate-speed.md`](../plan/plan-candidate-gate-speed.md).
-The next release's signing gate is
-[`plan/plan-v0.1.20.md`](../plan/plan-v0.1.20.md).
+The v0.1.20 signed-release record is
+[`plan/archive/plan-v0.1.20.md`](../plan/archive/plan-v0.1.20.md).
 
-### v0.1.20 release train (in progress, 2026-10-22)
+### v0.1.20 release (2026-10-23)
 
+- [x] [Public `v0.1.20` Release](https://github.com/partnernetsoftware/agenterm/releases/tag/v0.1.20)
+  was promoted without rebuilding from signed Candidate `39827814162`
+  (attempt 4) at source `66fb12cf4d61c64f2fe0cbbd8f9c20e51f59a1c0`, under
+  `release-policy.json` `signing.windows: required` and
+  `signing.macos: required`. Promotion `39831470067` followed rehearsal
+  `39831266048`; the tag is a direct commit tag on the Candidate source and
+  all seven archives byte-match the sealed manifest. Post-publication audit
+  `39832274488` passed after the audit-only repair `0dcd52f42` taught it the
+  newly published `windows-signing-receipt.json`; no tag or asset changed.
+- [x] Windows trust: Azure Artifact Signing Authenticode on all twelve
+  manifest-declared PEs (six per ISA), RFC 3161 timestamps, a sealed
+  `release_eligible` receipt, and both Windows runtime cells executed the
+  signed archives.
+- [x] macOS trust: company Developer ID with hardened runtime and secure
+  timestamps, notarization `Accepted`, ticket stapled to `AgenTerm.app`,
+  Gatekeeper `source=Notarized Developer ID`, and only then packaging and
+  hashing (M2); both macOS runtime cells executed the signed archives.
+- [x] Final-byte reputation: Microsoft Defender scanned both signed Windows
+  archives on a real Windows Server 2022 host with a passing EICAR negative
+  control; bytes unchanged; reputation run `39831180341`.
 - [x] Hosted pack lane: `six-cell-cloud-build.yml` runs the unchanged local
   six-cell build and encrypted staging scripts on one hosted `macos-15`
-  runner under the sanctioned `AGENTERM_SIX_CELL_CLOUD` opt-in (adopted from
-  MiniCon's pack lane). Run `39653522650` produced staging prerelease
-  `419977491` from source `7661eb9116f881cf54b632ab1980e0d8c82e99c4` — the
-  first Candidate input built without a developer Mac.
+  runner (adopted from MiniCon), so a release no longer needs a developer Mac.
 - [x] Product-source pinning: `scripts/product-source-hash.sh` replaces raw
-  `origin/main` head equality in the Candidate preflight and both six-cell
-  scripts, so plan/doc-only commits no longer invalidate a pinned chain.
-- [x] Unsigned Candidate `39663567822` sealed at that exact source on the
-  first attempt: six execute-only runtime cells, chassis product and
-  aggregate all passed.
-- [~] W1 `39664002396` and M1 `39664012904` qualification courts are
-  dispatched against that Candidate and paused on the protected
-  `release-signing` Environment awaiting the owner's approval.
-- [~] M2 is implemented in `candidate.yml` (macOS sign → notarize → staple →
-  assess → then package, in the protected Environment, with
-  signed-XOR-unsigned gating on chassis_pack/runtime/aggregate); its signed
-  lane runs only once `signing.macos` flips to `required`, so it has no live
-  evidence yet. The unsigned lane remains a byte-identical pass-through.
-- [ ] Remaining, in order: W1/M1 verdicts → flip `release-policy.json`
-  signing to `required` → fresh exact-SHA Candidate (W2 + M2 live) →
-  final-byte reputation → rehearsal → explicit human Promotion.
+  `origin/main` equality in the Candidate preflight and both six-cell scripts,
+  so plan/doc/workflow-only commits do not invalidate a pinned chain.
+- [~] Known operational constraints: a signed Candidate must be rerun as a
+  whole attempt (a failed-jobs rerun reuses the earlier attempt's Windows
+  receipt and aggregate rejects it); Apple's CloudKit ticket fetch can drop
+  hosted-runner connections during stapling, now retried with backoff
+  (`a2d7ddcd7`). Linux keeps its checksum/provenance lane without a platform
+  signature. The full defect list and shipped hashes live in
+  [`plan/archive/plan-v0.1.20.md`](../plan/archive/plan-v0.1.20.md).
 
 ### v0.1.19 release (2026-09-24)
 

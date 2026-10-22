@@ -1,19 +1,66 @@
 # AgenTerm v0.1.20 — signed desktop release
 
-Status: **active (owner decision 2026-10-21; supersedes the earlier
-"paused, unpublished" note in [`plan-v0.2.0.0.md`](plan-v0.2.0.0.md) — 0.2.x
-starts only after this version ships publicly)**
+Status: **shipped 2026-10-23 — public
+[`v0.1.20`](https://github.com/partnernetsoftware/agenterm/releases/tag/v0.1.20),
+the first AgenTerm release whose Windows and macOS bytes carry platform
+signatures. Archived as the release record; the open line is
+[`plan-v0.2.0.0.md`](../plan-v0.2.0.0.md).**
+
+## Shipped identity
+
+| Item | Value |
+|---|---|
+| Source | `66fb12cf4d61c64f2fe0cbbd8f9c20e51f59a1c0` (tag `v0.1.20`, commit object) |
+| Six-cell input | cloud run `39817858627` → encrypted staging `421032796` (deleted after Promotion) |
+| Candidate | `39827814162`, attempt 4 (policy `windows: required`, `macos: required`) |
+| Reputation | host Defender court on Windows Server 2022 (EICAR control detected, both signed Windows archives clean, bytes unchanged) → run `39831180341` |
+| Rehearsal | Promotion dry run `39831266048` |
+| Promotion | `39831470067` (owner directive "继续直到发布完成并公开", 2026-10-22) |
+| Post-publication audit | `39832274488` passed after the audit-only receipt repair `0dcd52f42` |
+
+| Asset | SHA-256 | Trust |
+|---|---|---|
+| `agenterm-0.1.20-windows-x86_64.zip` | `2efda07b81553059bb2daed5457c7a59463b62c567af9e26ddedc445ef582bea` | Authenticode, 6 PEs |
+| `agenterm-0.1.20-windows-aarch64.zip` | `4d7a1715cc7889866a1f5b921b2bfc6a7ab8361339d26f63604d81b778ccd289` | Authenticode, 6 PEs |
+| `agenterm-0.1.20-macos-aarch64.zip` | `534243955324f16ce7c5ba2147129af5d3dd61ac349b3a3764abb863dd411d7f` | Developer ID, notarized, stapled |
+| `agenterm-0.1.20-macos-x86_64.zip` | `259c13019a43a55d1748c2c66e0ba94955569e97298a0c3cc02d69658fdbfcf0` | Developer ID, notarized, stapled |
+| `agenterm-0.1.20-linux-x86_64.tar.gz` | `0566395ba699c29ecc494efc4d57a0bb024145730f369bd339e2e0f9e0e59cbb` | checksum + provenance |
+| `agenterm-0.1.20-linux-aarch64.tar.gz` | `c8ad2a73dad81b7d6fd783f72160fb9ee7392944f75f7914b2a89e0eb63ce983` | checksum + provenance |
+| `agenterm-0.1.20-chassis-product.tgz` | `d13ef95576e1824dc54c9b9a1c0638710761c7e17e125ed39b335de2c041e50b` | checksum + provenance |
+
+Gate verdicts: W0 closed; W1/M1 proved both live providers (twelve PEs signed;
+every Mach-O and the bundle signed) and stopped only on receipt/input
+bookkeeping, after which the owner-delegated order recorded below moved proof
+to the signed Candidate; W2 and M2 passed inside Candidate `39827814162`
+(Azure twelve-file receipt; Developer ID → notarization `Accepted` → staple →
+Gatekeeper → package), and all six runtime cells executed the signed bytes; R
+passed. The remainder of this file is the execution history.
+
+Defects the live chain found and fixed, in order: hosted runner lacked
+`lld-link` (rust-lld rename); owner-network proxy default in the pre-push gate;
+missing `llvm-rc`; MiniCon consumer matrix outside the workspace;
+`THIRD_PARTY_NOTICES.md` drift after externalization; stage script without its
+executable bit; a hardcoded ten-file receipt audit; helper byte equality
+checked after signing; arm64 linker ad-hoc signatures rejected as prior
+signatures; `[double]` payload byte counts; CRLF in the signed `.sha256`; the
+glued `-R==` designated-requirement argument; unsigned size evidence carried
+onto the signed macOS archive; Apple CloudKit ticket-fetch flakes during
+stapling (retry added); a post-publication audit unaware of the signing
+receipt.
+
+Earlier status (2026-10-21): active by owner decision, superseding the
+"paused, unpublished" note in `plan-v0.2.0.0.md`.
 
 Scope note 2026-10-21: besides the signing gates below, v0.1.20 ships the
 MiniCon externalization already on `main`: `minicon-platform` /
 `minicon-ui-core` / `minicon-core` consumed by pinned git rev (see
-[`plan-v0.2.0.0-platform-move.md`](plan-v0.2.0.0-platform-move.md), executed
+[`plan-v0.2.0.0-platform-move.md`](../plan-v0.2.0.0-platform-move.md), executed
 ahead of the 0.2.x line). Version identity is bumped to `0.1.20` in the
 workspace Cargo manifests and `release-policy.json`; signing modes flip to
 `required` only after their non-promotable qualification courts pass (W1/M1).
-Product owner: [`prd/PRD_02_17_delivery_quality.md`](../prd/PRD_02_17_delivery_quality.md)
-Version assignment: [`prd/PRD_02_18_roadmap.md`](../prd/PRD_02_18_roadmap.md)
-Operational authority: [`skills/agenterm-release/SKILL.md`](../skills/agenterm-release/SKILL.md)
+Product owner: [`prd/PRD_02_17_delivery_quality.md`](../../prd/PRD_02_17_delivery_quality.md)
+Version assignment: [`prd/PRD_02_18_roadmap.md`](../../prd/PRD_02_18_roadmap.md)
+Operational authority: [`skills/agenterm-release/SKILL.md`](../../skills/agenterm-release/SKILL.md)
 
 ## Release decision
 
@@ -121,7 +168,7 @@ v0.1.20 — final Candidate bytes carry verified platform trust
 
 The owner directed this release to learn from MiniCon's build+test+release
 pipeline (study notes in
-[`goal-release-minicon-lessons.md`](goal-release-minicon-lessons.md)). Three
+[`goal-release-minicon-lessons.md`](../goal-release-minicon-lessons.md)). Three
 adoptions landed:
 
 1. **Hosted pack lane** — `.github/workflows/six-cell-cloud-build.yml` runs
@@ -221,22 +268,25 @@ compiler. Linux remains on its checksum/provenance lane; this plan does not
 invent a Linux executable-signing format. Windows and Apple have separate
 providers, credentials, receipts and failure gates.
 
-## Post-release archival checklist (runs only after public Promotion)
+## Post-release archival (done 2026-10-23)
 
-Owner goal, second clause: once v0.1.20 is public, sweep the stale material
-into `plan/archive/` and reconcile the live documents. Prepared candidates
-(verify each is actually closed before moving it):
+Owner goal, second clause: once v0.1.20 was public, stale material moved into
+`plan/archive/` and the live documents were reconciled. Every relative link
+was re-resolved before and after the move (one pre-existing external `~/`
+link remains the only unresolved target).
 
-- `plan/plan-v0.1.17.md`, `plan-v0.1.18.md`, `plan-v0.1.19.md` — shipped
-  version plans; archive once v0.1.20's release notes supersede them.
-- `plan/design-*-experiment.md` — archive those whose experiment reached a
-  recorded verdict; keep any still cited by an open plan.
-- `plan/roadmap-0.1x-0.2x.md` — refresh so 0.1.x is closed out and 0.2.x
-  (per `plan-v0.2.0.0.md`) is the open line; do not create a second roadmap.
-- `prd/PRD_02_18_roadmap.md` — mark v0.1.20 shipped with the Candidate and
-  Promotion identities.
-- This plan itself — mark shipped with the final Candidate run id, receipts
-  and promoted asset hashes, then archive the superseded qualification notes.
+- [x] `plan-v0.1.17.md` (archived as `plan-v0.1.17-release-train.md`, since an
+  older v0.1.17 public plan already held that name), `plan-v0.1.18.md`,
+  `plan-v0.1.19.md` and this plan moved to `plan/archive/`.
+- [x] Experiments: only `design-qjs-expression-depth-decode-cost-experiment.md`
+  had both a recorded verdict ("reject an optimization leaf") and no living
+  citation; it moved. Every other `design-*-experiment.md` is still in
+  progress or cited by an open PRD leaf (including
+  `design-qjs-expression-depth-experiment.md`, whose own §8 says "implementation
+  not started") and stays live.
+- [x] `plan/roadmap-0.1x-0.2x.md`, `prd/PRD_02_18_roadmap.md`,
+  `prd/PRD_02_17_delivery_quality.md` and `plan-v0.2.0.0.md` record v0.1.20
+  as shipped and 0.2.x as the open line.
 
 ## Validation and safe failure
 

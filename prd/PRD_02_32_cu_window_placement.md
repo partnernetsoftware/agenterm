@@ -211,7 +211,7 @@ crash recovery and concurrent-writer CAS remain open; this leaf is still partial
   larger/smaller, then undo/redo.
 - [ ] roadmap ownership:
   [18](PRD_02_18_roadmap.md); execution projection:
-  [`plan/plan-v0.1.19.md`](../plan/plan-v0.1.19.md). v0.1.18 remains the
+  [`plan/archive/plan-v0.1.19.md`](../plan/archive/plan-v0.1.19.md). v0.1.18 remains the
   in-progress unique version plan until it closes. This module must not be
   marked shipped from design text alone.
 

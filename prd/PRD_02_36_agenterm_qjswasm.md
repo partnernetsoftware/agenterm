@@ -1136,4 +1136,4 @@ integration.
 - Performance changes require before/after step, wall-time, memory and output
   measurements on the same guest and pin; a larger limit is not an optimization.
 
-Current execution plan: [`plan/plan-v0.1.18.md`](../plan/plan-v0.1.18.md).
+Current execution plan: [`plan/archive/plan-v0.1.18.md`](../plan/archive/plan-v0.1.18.md).

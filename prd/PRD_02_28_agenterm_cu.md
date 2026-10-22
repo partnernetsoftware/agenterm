@@ -3384,7 +3384,7 @@ current-tier gap input
 [`plan/agent-human-parity-audit.md`](../plan/agent-human-parity-audit.md).
 Those are execution projections; accepted scope and status belong to this
 subtree. Window-placement sequencing lives in
-[`plan/plan-v0.1.19.md`](../plan/plan-v0.1.19.md); v0.1.18 remains the
+[`plan/archive/plan-v0.1.19.md`](../plan/archive/plan-v0.1.19.md); v0.1.18 remains the
 in-progress unique version plan until it closes.
 
 ## Browser window lifecycle closure

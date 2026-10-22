@@ -1,6 +1,6 @@
 # Goal: absorb Minicon release lessons into AgenTerm
 
-Version owner: [`plan-v0.1.18.md`](plan-v0.1.18.md). This goal supplies the
+Version owner: [`plan-v0.1.18.md`](archive/plan-v0.1.18.md). This goal supplies the
 release-engineering leaves carried forward after the unpublished v0.1.17 train
 was skipped. Shared MiniCon/AgenTerm abstraction still requires measured
 evidence from both products, not merely similar script names.

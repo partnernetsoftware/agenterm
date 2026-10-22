@@ -15,6 +15,20 @@ Current product truth starts at `PRD.md`; current sequencing starts at
 - `plan-v0.1.18-pre-qjswasm-app-pack.md` and
   `plan-v0.1.19-pre-cu-route.md` — superseded route drafts whose QJS/Rh/App
   assumptions no longer match the active qjswasm/CU route.
+- `plan-v0.1.17.md` — the early v0.1.17 public plan, never started;
+  `plan-v0.1.17-release-train.md` — the later skipped, unpublished v0.1.17
+  release-train record (archived 2026-10-23).
+- `plan-v0.1.18.md` and `plan-v0.1.19.md` — published release-train records:
+  CU product gates and one-cross-build topology; the fast-change Chassis
+  boundary (archived 2026-10-23).
+- `plan-v0.1.20.md` — shipped 2026-10-23: the first release with Authenticode
+  Windows bytes and Developer ID notarized macOS bytes, its shipped identity
+  table, live-chain defect list and gate verdicts.
+
+## Experiments with recorded verdicts
+
+- `design-qjs-expression-depth-decode-cost-experiment.md` — verdict: reject
+  an optimization leaf (archived 2026-10-23).
 
 ## Rh-era history
 

@@ -3,7 +3,7 @@
 > Superseded by `plan/plan-v0.1.19.md`; retained only as design history.
 
 状态：**预开草案**（不是在制唯一版本计划）。在制仍是
-[`plan-v0.1.18.md`](../plan-v0.1.18.md)。本文件冻结「0.1.18 关闭后立刻收口」的
+[`plan-v0.1.18.md`](plan-v0.1.18.md)。本文件冻结「0.1.18 关闭后立刻收口」的
 已接受叶，并记录 window-place / 热键宿主已提前落地的部分，避免合同与代码分叉。
 跨版依赖和砍叶顺序见 [`roadmap-0.1x-0.2x.md`](../roadmap-0.1x-0.2x.md)。
 

@@ -7,12 +7,18 @@ tenant coordinate, account name, certificate-profile name, or OIDC identifier.
 
 ## Current release status
 
+The public v0.1.20 Release (2026-10-23) is the first signed AgenTerm release:
+every declared Windows PE (six per ISA) carries a PARTNERNET SOFTWARE PTY LTD
+Authenticode signature with an RFC 3161 timestamp, and both macOS archives
+contain a Developer ID-signed, notarized and stapled `AgenTerm.app`. Each
+Release publishes its `windows-signing-receipt.json` beside the archives. Linux
+archives carry no platform signature and rely on their SHA-256 and provenance
+files.
+
 The public v0.1.19 Windows assets are unsigned, and its macOS archives are
-explicitly labelled unsigned previews. The Windows signing implementation and
-repository-specific OIDC identity are prepared, but AgenTerm has not yet
-completed its first live signed qualification. A qualification artifact is
-never a signed Release: it is deliberately marked `release_eligible=false` and
-cannot be promoted.
+explicitly labelled unsigned previews; earlier releases are likewise unsigned.
+A qualification artifact is never a signed Release: it is deliberately marked
+`release_eligible=false` and cannot be promoted.
 
 `release-policy.json` is the machine-readable authority. Its
 `signing.windows` value is either:

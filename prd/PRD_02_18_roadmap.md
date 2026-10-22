@@ -13,7 +13,8 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned, `[-]` excluded.
 The user skipped v0.1.17 without public publication on 2026-09-20. v0.1.18
 published on 2026-09-21; its release evidence is in
 [`docs/release-0.1.18-record.md`](../docs/release-0.1.18-record.md). v0.1.19
-published on 2026-09-24; v0.1.20 is the active planning train. The v0.1.17
+published on 2026-09-24; v0.1.20 published on 2026-10-23 as the first signed
+desktop release, and 0.2.x is the open line. The v0.1.17
 section below records the abandoned objective, not a shipped prerequisite or
 a current gate.
 
@@ -41,12 +42,12 @@ AgenTerm delivery after v0.1.16
 │  ├─ prove an L2/L3-only product change does not run six-cell rustc
 │  ├─ keep PTY/window/input/IPC/signing in native ownership
 │  └─ [-] no marketplace, remote update or wholesale workbench rewrite
-├─ [ ] v0.1.20 — signed desktop release and 0.1.x convergence
-│  ├─ Windows: company Authenticode + timestamp on final Candidate bytes
-│  ├─ macOS: Developer ID + notarized and stapled app on final Candidate bytes
-│  ├─ close selected three-host UX and lifecycle parity debt
-│  ├─ reconcile PRD, alignment contract, public commands and evidence
-│  └─ admit no new product family
+├─ [x] v0.1.20 — signed desktop release (published 2026-10-23)
+│  ├─ [x] Windows: company Authenticode + timestamp on final Candidate bytes
+│  ├─ [x] macOS: Developer ID + notarized and stapled app on final Candidate bytes
+│  ├─ [-] three-host UX and lifecycle parity debt — not shipped; carried to 0.2.x
+│  ├─ [-] PRD / alignment-contract reconciliation sweep — carried to 0.2.x
+│  └─ [x] admit no new product family
 └─ [ ] v0.2.x — Control Center and distribution
    ├─ 0.2.0: one operable Cockpit vertical slice
    ├─ later: one install/update/rollback substrate
@@ -132,7 +133,7 @@ flowchart LR
 - User problem: v0.1.19 Windows archives are unsigned and macOS downloads are
   unsigned previews; accumulated partial leaves also weaken product trust.
 - Required release gate: the Windows and macOS final Candidate bytes satisfy
-  the signing courts in [`plan-v0.1.20.md`](../plan/plan-v0.1.20.md). Missing
+  the signing courts in [`plan-v0.1.20.md`](../plan/archive/plan-v0.1.20.md). Missing
   signing evidence blocks public Promotion until an explicit owner decision
   changes the version scope.
 - Success evidence: release-eligible Windows Authenticode receipts and Apple
@@ -140,6 +141,13 @@ flowchart LR
   selected parity/lifecycle leaves have public three-host evidence; PRD,
   `prd/alignment-contract.json`, command catalogs and receipts agree.
 - Non-goal: no new executable or product family enters the closure release.
+- Shipped 2026-10-23: public `v0.1.20` from signed Candidate `39827814162`
+  (attempt 4), source `66fb12cf4d61c64f2fe0cbbd8f9c20e51f59a1c0`, Promotion
+  `39831470067`, reputation `39831180341`, post-publication audit
+  `39832274488`. The signing gate is met for both desktop platforms; the
+  convergence leaves above were not part of this release and are carried into
+  the 0.2.x line rather than claimed. Hashes and the defect list live in the
+  archived plan.
 
 ## Portfolio rules
 

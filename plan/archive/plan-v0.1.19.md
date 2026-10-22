@@ -1,8 +1,8 @@
 # AgenTerm v0.1.19 — fast-change chassis boundary
 
 Status: **active planning; v0.1.18 published 2026-09-21**
-Product owner: [`prd/PRD_02_18_roadmap.md`](../prd/PRD_02_18_roadmap.md)
-Execution owner: [`goal-chassis-l1-l2-l3.md`](goal-chassis-l1-l2-l3.md)
+Product owner: [`prd/PRD_02_18_roadmap.md`](../../prd/PRD_02_18_roadmap.md)
+Execution owner: [`goal-chassis-l1-l2-l3.md`](../goal-chassis-l1-l2-l3.md)
 
 ## Release focus, 2026-09-22
 
@@ -70,13 +70,13 @@ both workbench adapters reject an invalid image before presentation. Its
 `active-tab` L2 artifact is still a substrate: the live workbench PE and its
 PTY/IPC/product dispatch have not been replaced. Thus a successful compose
 test alone cannot satisfy this version's fast-change promise. See the current
-layout and debt in [`ARCHITECTURE.md`](ARCHITECTURE.md) §1 and §4.
+layout and debt in [`ARCHITECTURE.md`](../ARCHITECTURE.md) §1 and §4.
 
 Candidate `35626359893` is a delivery blocker, not Chassis evidence. Five
 build cells passed; the Windows x86_64 quality gate trapped in
 `powershell-migration-audit`, leaving runtime and aggregate skipped. Its
 93.13% sccache hit rate proves cache reuse only. The exact recovery work is
-owned by [`plan-candidate-gate-speed.md`](plan-candidate-gate-speed.md).
+owned by [`plan-candidate-gate-speed.md`](../plan-candidate-gate-speed.md).
 
 The sealed v0.1.18 Candidate `35606274661` supplies a traceable historical
 six-cell loader baseline: the independently recomputed loader SHA-256 values
@@ -125,15 +125,15 @@ clear release decision.
 
 This is a small supporting track, not a second source map or a substitute for
 the Chassis acceptance above. Current ownership and debt IDs remain in
-[`ARCHITECTURE.md`](ARCHITECTURE.md) §1 and §4; product behavior remains in the
+[`ARCHITECTURE.md`](../ARCHITECTURE.md) §1 and §4; product behavior remains in the
 owning PRDs. Keep the current CU frontier ahead of unrelated UI breadth.
 
 | Order | Change | Owner and dependency | Evidence / safe failure |
 |---|---|---|---|
-| 0 | Qualify the exact release commit with Candidate after local validation. The rerun artifact repair and bounded trap diagnostics are on `main`; retain the 93.13% sccache hit measurement as a cache result only. | Delivery quality, [`plan-candidate-gate-speed.md`](plan-candidate-gate-speed.md); no public Promotion. | Six build/runtime cells and aggregate must pass. A failed or skipped aggregate remains failed; a repeat trap requires targeted local diagnosis and repair before another qualification run. |
+| 0 | Qualify the exact release commit with Candidate after local validation. The rerun artifact repair and bounded trap diagnostics are on `main`; retain the 93.13% sccache hit measurement as a cache result only. | Delivery quality, [`plan-candidate-gate-speed.md`](../plan-candidate-gate-speed.md); no public Promotion. | Six build/runtime cells and aggregate must pass. A failed or skipped aggregate remains failed; a repeat trap requires targeted local diagnosis and repair before another qualification run. |
 | 1 | Trace one existing shared `ui-action` family end to end through `frontend`, Windows remote, Unix embedded, and `control_dispatch`. Start with window and tab selection actions, which are already in `SHARED_UI_ACTIONS`; record the actual duplicate parse/transition points before moving code. | L2 product semantics in `src/frontend/*`; host adapters only present and forward. Do not change action IDs or public payloads. | Existing catalog set test plus an owning pure-state test that fails when one host's rule diverges; public CLI journey on available native hosts. An untested host is `BLOCKED`, not inferred green. |
 | 2 | Move only the proven duplicate request normalization or state transition into the existing shared frontend owner. Replace the two adapter branches with calls to it; leave host-specific wake, IME, drawing and native controls in their adapters. | Depends on order 1 showing the same rule on both hosts. Update `ui_action_catalog.rs` only if its inventory truly changes; record a `parity-gap:` for genuine host-only behavior. | Red/green guard mutation, `cargo test --lib` owning tests, boundary test, and public CLI behavior. Preserve terminal tree, remain-on-exit and explicit-close behavior. |
-| 3 | After the shared rule is green, extract the remaining Windows command-presenting branch into a sibling module only if it removes a real ownership tangle from `remote_frontend.rs`. Do not split by line count alone. Audit `platform/mod.rs` consumers before any L3 facade removal. | L2 then L3 in [`ARCHITECTURE.md`](ARCHITECTURE.md) §4. Keep MiniCon's `minicon-platform` consumer and Windows font owner out of this slice. | No new product semantics in an adapter or mechanism crate; same CLI snapshots/receipts before and after. Update the architecture map in the same change if a physical owner moves. |
+| 3 | After the shared rule is green, extract the remaining Windows command-presenting branch into a sibling module only if it removes a real ownership tangle from `remote_frontend.rs`. Do not split by line count alone. Audit `platform/mod.rs` consumers before any L3 facade removal. | L2 then L3 in [`ARCHITECTURE.md`](../ARCHITECTURE.md) §4. Keep MiniCon's `minicon-platform` consumer and Windows font owner out of this slice. | No new product semantics in an adapter or mechanism crate; same CLI snapshots/receipts before and after. Update the architecture map in the same change if a physical owner moves. |
 
 Stop this track after the first complete shared action family and its native
 evidence. Review the result before selecting another family. Candidate topology

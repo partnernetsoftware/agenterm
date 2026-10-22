@@ -38,6 +38,11 @@ Read these repository-owned contracts before acting:
 
 Read `references/github-auth-and-dispatch.md` when authentication, workflow
 dispatch, monitoring, rate limits, or human approval is involved.
+Read `references/signed-release-operations.md` before running any Candidate
+while signing is `required`: the hosted six-cell lane, approval of
+`release-signing` pauses, why signed Candidates rerun only as whole runs, the
+stapling flake, what forces a rebuild, the Windows-host Defender court, and the
+post-Promotion cleanup.
 Read `references/company-signing-enrollment.md` before changing signing policy,
 provider configuration, signature receipts, or final-byte reputation courts.
 Read `references/apple-signing-enrollment.md` before touching the macOS lane:
@@ -126,6 +131,10 @@ Between Candidate and Promotion, `release-policy.json`
 `reputation.windows_final_candidate_bytes: "required"` demands a Defender scan
 of the sealed Windows bytes. Run it locally against the downloaded Candidate,
 then publish the qualification:
+
+On a real Windows host, `scripts/host-win-defender-court.ps1` replaces the UTM
+step (see `references/signed-release-operations.md`); its receipt feeds the
+same `qualify` command below.
 
 ```sh
 gh run download <candidate_run_id> --name release-candidate-<candidate_run_id> --dir target/candidate-<v>

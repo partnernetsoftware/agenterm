@@ -639,7 +639,7 @@ track remains planned, but every declared dependency must still pass.
   ships before its authorization/audit requirements
   ([31](../PRD_02_31_cu_authorization_safety.md)) pass for that tier.
   Execution projection for 32:
-  [`plan/plan-v0.1.19.md`](../../plan/plan-v0.1.19.md).
+  [`plan/plan-v0.1.19.md`](../../plan/archive/plan-v0.1.19.md).
 - [ ] `agenterm-mobile` reach track: accepted scope owned by
   [Mobile reach](../PRD_02_33_mobile_reach.md). The **first host is a PWA**
   at `https://agenterm.work/app`, sourced from `docs/` with a homepage
@@ -673,7 +673,7 @@ track remains planned, but every declared dependency must still pass.
     QJS `agenterm.app` `.agp`, loaded through a narrow versioned App Host ABI;
     App-only delivery must not rebuild Base. Rh remains Build/CI and general
     local automation, not the product App fallback.
-  - [ ] execution SSOT: [`plan/plan-v0.1.18.md`](../../plan/plan-v0.1.18.md);
+  - [ ] execution SSOT: [`plan/plan-v0.1.18.md`](../../plan/archive/plan-v0.1.18.md);
     Script Runtime authority:
     [`PRD_02_10_rhai_scripting.md`](../PRD_02_10_rhai_scripting.md)
   - [~] **Chassis L1 freeze (partial):** bounded L2 VM, versioned Host ABI,

@@ -3,7 +3,7 @@
 状态：active（2026-08-25 立项；**P0 / P1 / P3 零缺口；P2 运行时三格已过、三格阻塞待人工；装置已在 minicon 上二次证明**）
 角色：本机（Apple Silicon mac mini）作为六格构建与四格运行时验证的单一宿主
 编排拍板：2026-08-25
-关联：`AGENTS.md`（Cross-platform build and test contract）、`plan/plan-v0.1.18.md`（轨 D `agenterm-cu`）、`prd/PRD_02_30_cu_targets_transports.md`（`vnc` 目标族）、`crates/agenterm-vnc`
+关联：`AGENTS.md`（Cross-platform build and test contract）、`plan/archive/plan-v0.1.18.md`（轨 D `agenterm-cu`）、`prd/PRD_02_30_cu_targets_transports.md`（`vnc` 目标族）、`crates/agenterm-vnc`
 **脱敏**：仓内一律仓库相对路径，家目录统一 `~/...`；不写宿主绝对 home、不写凭据。
 
 > 用法：把下面 `--- GOAL ---` 之间的内容整段发给 agent（或 `/goal` 加载本文件）即可。
