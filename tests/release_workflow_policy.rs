@@ -3173,6 +3173,10 @@ fn candidate_macos_lane_signs_then_packages_in_the_protected_environment() {
         .expect("packaging after staple");
     assert!(staple < assess && assess < package);
     assert!(sign.contains("provenance[\"channel\"] = \"release\""));
+    // Size evidence describes the signed archive (signed Candidate
+    // 39816300648 stopped at candidate_archive_size_evidence).
+    assert!(sign.contains("provenance[\"archive_bytes\"] = signed.stat().st_size"));
+    assert!(sign.contains("provenance[\"payload_uncompressed_bytes\"] = payload"));
     assert!(CANDIDATE.contains(
         "(needs.preflight.outputs.signed_macos == 'true' && needs.macos_sign.result == 'success') ||"
     ));

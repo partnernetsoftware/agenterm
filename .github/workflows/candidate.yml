@@ -614,8 +614,8 @@ jobs:
             ditto -c -k "$work" "$signed_zip"
             shasum -a 256 "$signed_zip" | awk '{print $1 "  " "'"$(basename "$signed_zip")"'"}' \
               >"$signed_zip.sha256"
-            python3 - "$unsigned_zip.provenance.json" "$signed_zip" <<'PY'
-          import hashlib, json, sys
+            python3 - "$unsigned_zip.provenance.json" "$signed_zip" "$work" <<'PY'
+          import hashlib, json, os, sys
           from pathlib import Path
           provenance = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
           signed = Path(sys.argv[2])
@@ -623,8 +623,21 @@ jobs:
           with open(signed, "rb") as stream:
               for chunk in iter(lambda: stream.read(1 << 20), b""):
                   digest.update(chunk)
+          # Size evidence must describe the signed archive, exactly as
+          # package-client-release.qjs measures it: regular files only, and a
+          # symlink anywhere in the payload is a packaging error.
+          payload = 0
+          for root, dirs, files in os.walk(sys.argv[3]):
+              for name in dirs + files:
+                  if os.path.islink(os.path.join(root, name)):
+                      raise SystemExit(f"signed macOS payload symlink: {name}")
+              payload += sum(os.path.getsize(os.path.join(root, name)) for name in files)
+          if payload <= 0:
+              raise SystemExit("signed macOS payload is empty")
           provenance["artifact"] = signed.name
           provenance["sha256"] = digest.hexdigest()
+          provenance["archive_bytes"] = signed.stat().st_size
+          provenance["payload_uncompressed_bytes"] = payload
           provenance["channel"] = "release"
           provenance["signed"] = True
           provenance["notarized"] = True
