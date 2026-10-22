@@ -1265,9 +1265,9 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
         "\"native_six_cell\": true",
         "\"chassis_product\": true",
         "\"experimental_ape\": false",
-        "\"windows\": \"off\"",
+        "\"windows\": \"required\"",
         "\"linux\": \"off\"",
-        "\"macos\": \"unsigned-preview\"",
+        "\"macos\": \"required\"",
         "\"executable_compression\": \"off\"",
         "\"windows_final_candidate_bytes\": \"required\"",
     ] {

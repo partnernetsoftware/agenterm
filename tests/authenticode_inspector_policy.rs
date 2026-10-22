@@ -56,7 +56,7 @@ fn portable_inspector_is_explicitly_diagnostic() {
 #[test]
 fn public_policy_names_the_signed_boundary_and_authority_split() {
     for contract in [
-        "The public v0.1.16 assets are unsigned",
+        "The public v0.1.19 Windows assets are unsigned",
         "release_eligible=false",
         "signing.windows",
         "agenterm.exe",

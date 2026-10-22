@@ -7,9 +7,9 @@
     "experimental_ape": false
   },
   "signing": {
-    "windows": "off",
+    "windows": "required",
     "linux": "off",
-    "macos": "unsigned-preview"
+    "macos": "required"
   },
   "executable_compression": "off",
   "reputation": {

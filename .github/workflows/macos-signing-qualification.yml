@@ -189,7 +189,11 @@ jobs:
             # Every input must be a Mach-O with no existing signature: a
             # qualification proves the provider changed these exact bytes.
             file -b "work/$name" | grep -q 'Mach-O'
-            if codesign -dv "work/$name" >/dev/null 2>&1; then
+            # arm64 Mach-O always carries the linker's ad-hoc signature (Apple
+            # Silicon refuses to run unsigned arm64 code); only an identity
+            # signature means the provider would not be changing these bytes.
+            if codesign -dv "work/$name" >/dev/null 2>&1 &&
+              ! codesign -dv --verbose=2 "work/$name" 2>&1 | grep -q '^Signature=adhoc$'; then
               echo "unsigned Candidate input already carries a signature: $name" >&2
               exit 1
             fi

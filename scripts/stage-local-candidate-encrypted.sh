@@ -133,9 +133,24 @@ jq -e --arg tag "$tag" --arg source "$source_sha" '
 # This anonymous download proves the public encrypted staging route is
 # readable by a runner without repository write credentials before dispatch.
 checksum_id="$(jq -er --arg name "$expected.sha256" '.assets[] | select(.name == $name) | .id' <<<"$release_json")"
-curl --fail --location --silent --show-error \
-  -H 'Accept: application/octet-stream' \
-  "https://api.github.com/repos/$repository/releases/assets/$checksum_id" \
-  --output "$stage_dir/public-checksum"
+# Hosted runners share egress IPs, so the anonymous API quota can already be
+# spent (HTTP 403) when this probe runs (cloud run 39756747844). Back off and
+# retry anonymously; never fall back to credentials, which would no longer
+# prove the read-only route.
+probe_ok=false
+for delay in 0 30 60 120 240; do
+  sleep "$delay"
+  if curl --fail --location --silent --show-error \
+    -H 'Accept: application/octet-stream' \
+    "https://api.github.com/repos/$repository/releases/assets/$checksum_id" \
+    --output "$stage_dir/public-checksum"; then
+    probe_ok=true
+    break
+  fi
+done
+if [[ "$probe_ok" != true ]]; then
+  echo "anonymous staging readability probe failed after retries" >&2
+  exit 1
+fi
 cmp "$checksum" "$stage_dir/public-checksum"
 echo "LOCAL CANDIDATE ENCRYPTED STAGING READY source=$source_sha version=$version release_id=$release_id"

@@ -507,7 +507,12 @@ jobs:
               exit 1
             fi
           done
-          [[ "$AGENTERM_APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]
+          if [[ ! "$AGENTERM_APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]; then
+            echo "AGENTERM_APPLE_TEAM_ID must be a 10-character Apple Team identifier." >&2
+            exit 1
+          fi
+          # sign-macos-release.sh hard-requires the Team ID in its environment.
+          echo "AGENTERM_APPLE_TEAM_ID=$AGENTERM_APPLE_TEAM_ID" >>"$GITHUB_ENV"
 
       - name: Import the Developer ID identity into a throwaway keychain
         env:
@@ -571,7 +576,10 @@ jobs:
               --manifest scripts/artifacts.json --arch "$arch" >"macho-$arch.txt"
             while IFS= read -r name; do
               test -f "$work/$name"
-              if codesign -dv "$work/$name" >/dev/null 2>&1; then
+              # Only the linker's ad-hoc signature (always present on arm64)
+              # is allowed on input; an identity signature means drift.
+              if codesign -dv "$work/$name" >/dev/null 2>&1 &&
+                ! codesign -dv --verbose=2 "$work/$name" 2>&1 | grep -q '^Signature=adhoc$'; then
                 echo "unsigned Candidate input already carries a signature: $name" >&2
                 exit 1
               fi

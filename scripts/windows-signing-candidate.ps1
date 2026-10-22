@@ -269,7 +269,9 @@ foreach ($platform in $platforms) {
     Move-Item -LiteralPath $temporaryArchive -Destination $archive
     $archiveHash = Get-Sha256 $archive
     $archiveBytes = (Get-Item -LiteralPath $archive).Length
-    $payloadBytes = (Get-ChildItem -LiteralPath $payload -File -Recurse | Measure-Object -Property Length -Sum).Sum
+    # Measure-Object returns [double]; the receipt and provenance contracts
+    # require an integer byte count (W1 39776786632 rejected the float).
+    $payloadBytes = [long](Get-ChildItem -LiteralPath $payload -File -Recurse | Measure-Object -Property Length -Sum).Sum
     $provenancePath = "$archive.provenance.json"
     $provenance = Get-Content -LiteralPath $provenancePath -Raw | ConvertFrom-Json
     $provenance.signed = $true

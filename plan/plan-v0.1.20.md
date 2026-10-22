@@ -97,6 +97,26 @@ v0.1.20 — final Candidate bytes carry verified platform trust
   policies to `required` → new exact-SHA Candidate → reputation → rehearsal →
   human Promotion.
 
+### Live signing evidence and gate order (2026-10-22)
+
+- W1 `39664002396`/`39776786632`: Azure Artifact Signing signed all twelve
+  declared PEs (`Number of files successfully Signed: 12`, 0 errors). Both
+  runs then stopped in receipt bookkeeping: a hardcoded ten-file audit count
+  (now manifest-derived) and a `[double]` payload byte count from
+  `Measure-Object` (now `[long]`).
+- M1 `39664012904`/`39776797680`: the Developer ID identity signed every
+  Mach-O and sealed the bundle. Stops: the helper/`agenterm-cu` byte-equality
+  court ran after signing (moved to the pre-signature `--layout` pass) and
+  the unsigned-input check rejected the arm64 linker's mandatory ad-hoc
+  signature (now only an identity signature is rejected).
+- Gate order (owner-delegated agent decision, 2026-10-22, after the owner
+  directed "continue until public"): the policy flips to `required` together
+  with those fixes instead of after a third qualification round. Every
+  qualification stop so far was bookkeeping the signed Candidate executes
+  identically; the signed Candidate runs the same live providers fail-closed
+  and its runtime cells execute the final signed bytes, so it is the stronger
+  proof. Nothing in the signed-bytes gate is relaxed.
+
 ### MiniCon pipeline adoption (owner instruction 2026-10-21)
 
 The owner directed this release to learn from MiniCon's build+test+release
