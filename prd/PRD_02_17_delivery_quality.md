@@ -16,6 +16,32 @@ v0.1.19 planning and Candidate follow-up live in
 The next release's signing gate is
 [`plan/plan-v0.1.20.md`](../plan/plan-v0.1.20.md).
 
+### v0.1.20 release train (in progress, 2026-10-22)
+
+- [x] Hosted pack lane: `six-cell-cloud-build.yml` runs the unchanged local
+  six-cell build and encrypted staging scripts on one hosted `macos-15`
+  runner under the sanctioned `AGENTERM_SIX_CELL_CLOUD` opt-in (adopted from
+  MiniCon's pack lane). Run `39653522650` produced staging prerelease
+  `419977491` from source `7661eb9116f881cf54b632ab1980e0d8c82e99c4` — the
+  first Candidate input built without a developer Mac.
+- [x] Product-source pinning: `scripts/product-source-hash.sh` replaces raw
+  `origin/main` head equality in the Candidate preflight and both six-cell
+  scripts, so plan/doc-only commits no longer invalidate a pinned chain.
+- [x] Unsigned Candidate `39663567822` sealed at that exact source on the
+  first attempt: six execute-only runtime cells, chassis product and
+  aggregate all passed.
+- [~] W1 `39664002396` and M1 `39664012904` qualification courts are
+  dispatched against that Candidate and paused on the protected
+  `release-signing` Environment awaiting the owner's approval.
+- [~] M2 is implemented in `candidate.yml` (macOS sign → notarize → staple →
+  assess → then package, in the protected Environment, with
+  signed-XOR-unsigned gating on chassis_pack/runtime/aggregate); its signed
+  lane runs only once `signing.macos` flips to `required`, so it has no live
+  evidence yet. The unsigned lane remains a byte-identical pass-through.
+- [ ] Remaining, in order: W1/M1 verdicts → flip `release-policy.json`
+  signing to `required` → fresh exact-SHA Candidate (W2 + M2 live) →
+  final-byte reputation → rehearsal → explicit human Promotion.
+
 ### v0.1.19 release (2026-09-24)
 
 - [x] [Public `v0.1.19` Release](https://github.com/partnernetsoftware/agenterm/releases/tag/v0.1.19)
