@@ -279,7 +279,9 @@ foreach ($platform in $platforms) {
     $provenance.archive_bytes = $archiveBytes
     $provenance.payload_uncompressed_bytes = $payloadBytes
     Write-Json $provenance $provenancePath
-    "$archiveHash  $($statePlatform.archive_name)" | Set-Content -LiteralPath "$archive.sha256" -Encoding ascii
+    # LF, never Set-Content's CRLF: `sha256sum -c` reads the trailing CR as
+    # part of the file name (signed Candidate 39803208178 runtime cells).
+    [IO.File]::WriteAllText("$archive.sha256", "$archiveHash  $($statePlatform.archive_name)`n", [Text.Encoding]::ASCII)
     $receiptPlatforms[$platform.id] = [ordered]@{
         arch = $platform.arch
         archive_name = $statePlatform.archive_name

@@ -109,3 +109,14 @@ fn public_qualification_artifacts_do_not_receive_provider_coordinates() {
         );
     }
 }
+
+/// The signed archive's `.sha256` must end in LF: `sha256sum -c` in every
+/// Windows runtime cell treats a trailing CR as part of the file name, and
+/// Set-Content always writes CRLF (signed Candidate 39803208178).
+#[test]
+fn signed_archive_checksum_is_written_with_a_bare_lf() {
+    assert!(SIGNING_SCRIPT.contains(
+        "[IO.File]::WriteAllText(\"$archive.sha256\", \"$archiveHash  $($statePlatform.archive_name)`n\", [Text.Encoding]::ASCII)"
+    ));
+    assert!(!SIGNING_SCRIPT.contains("Set-Content -LiteralPath \"$archive.sha256\""));
+}
