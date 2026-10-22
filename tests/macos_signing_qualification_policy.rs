@@ -168,3 +168,21 @@ fn candidate_supplies_every_value_the_macos_signer_requires() {
     assert!(CANDIDATE.contains("Unsupported macOS signing policy"));
     assert!(WORKFLOW.contains("independent switches with"));
 }
+
+/// The designated-requirement court must hand codesign exactly
+/// `=<requirement text>`. The short form `-R="=..."` arrives as one glued
+/// `-R==...` argument and failed the first signed Candidate (39787739168)
+/// with only a bare mismatch token, so the court also prints its evidence.
+#[test]
+fn designated_requirement_court_passes_inline_text_and_reports_evidence() {
+    let validator = include_str!("../packaging/privilege/macos/validate-app-bundle.sh");
+    assert!(validator.contains("--test-requirement=\"=$requirement\""));
+    assert!(!validator.contains("-R=\"=$"));
+    assert!(validator.contains("codesign -d -r- \"$path\""));
+    assert!(validator.contains(
+        "require_designated \"$BUNDLE\" \"$APP_REQ\" macos_provider_app_requirement_mismatch"
+    ));
+    assert!(validator.contains(
+        "require_designated \"$HELPER\" \"$HELPER_REQ\" macos_provider_helper_requirement_mismatch"
+    ));
+}

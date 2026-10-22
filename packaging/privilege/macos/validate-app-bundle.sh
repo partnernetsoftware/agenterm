@@ -177,12 +177,23 @@ PY
 trap 'rm -f "${BUNDLE}.requirements.tmp"' EXIT
 APP_REQ="$(sed -n '1p' "${BUNDLE}.requirements.tmp")"
 HELPER_REQ="$(sed -n '2p' "${BUNDLE}.requirements.tmp")"
-/usr/bin/codesign -R="=$APP_REQ" --verify "$BUNDLE" >/dev/null 2>&1 || {
-  echo "macos_provider_app_requirement_mismatch" >&2; exit 1;
+# The long option splits at its first `=`, so the value is exactly
+# `=<requirement text>` (codesign's inline-text prefix). The short form
+# `-R="=..."` reached codesign as one glued `-R==...` argument. On failure,
+# print codesign's own reason and the code's actual designated requirement;
+# a bare mismatch token cost a full release cycle to diagnose.
+require_designated() {
+  local path="$1" requirement="$2" token="$3" output
+  if ! output="$(/usr/bin/codesign --verify --test-requirement="=$requirement" "$path" 2>&1)"; then
+    echo "$token" >&2
+    echo "expected requirement: $requirement" >&2
+    echo "codesign: $output" >&2
+    /usr/bin/codesign -d -r- "$path" 2>&1 | sed 's/^/actual: /' >&2 || true
+    exit 1
+  fi
 }
-/usr/bin/codesign -R="=$HELPER_REQ" --verify "$HELPER" >/dev/null 2>&1 || {
-  echo "macos_provider_helper_requirement_mismatch" >&2; exit 1;
-}
+require_designated "$BUNDLE" "$APP_REQ" macos_provider_app_requirement_mismatch
+require_designated "$HELPER" "$HELPER_REQ" macos_provider_helper_requirement_mismatch
 rm -f "${BUNDLE}.requirements.tmp"
 trap - EXIT
 echo "MACOS_PROVIDER_SIGNED_BUNDLE_OK team_consistent=true install_required=true"
