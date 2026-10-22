@@ -147,7 +147,9 @@ Both pause on the protected `release-signing` Environment for the owner's
 explicit approval. Evidence retention, the M2 restructure, the policy flips
 and the next Candidate then continue per the gate table above.
 
-### M2 restructure design (prepared 2026-10-21; execute only after M1 passes)
+### M2 restructure design (implemented 2026-10-22 in candidate.yml; its signed
+### lane runs only when `signing.macos=required`, so live proof follows M1 and
+### the policy flip — the unsigned path stays a byte-identical pass-through)
 
 `candidate.yml` already models the required shape on its Windows lane:
 `stage_parts` uploads `candidate-unsigned-part-windows-*`, then exactly one of

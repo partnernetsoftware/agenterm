@@ -1278,7 +1278,7 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
     }
     assert!(CANDIDATE.contains("name: Resolve checked-in release policy"));
     assert!(CANDIDATE.contains(
-        "needs: [preflight, stage_parts, windows_unsigned, windows_sign, chassis_pack, runtime]"
+        "needs: [preflight, stage_parts, windows_unsigned, windows_sign, macos_unsigned, macos_sign, chassis_pack, runtime]"
     ));
 
     let runtime = CANDIDATE
@@ -3145,6 +3145,42 @@ fn six_cell_cloud_build_is_the_sanctioned_hosted_pack_lane() {
     ));
 }
 
+/// M2: the Apple lane signs inner-out, notarizes, staples and assesses the
+/// bundle BEFORE the final archive is packaged and hashed, inside the
+/// protected Environment; a skipped signing job never satisfies aggregate.
+#[test]
+fn candidate_macos_lane_signs_then_packages_in_the_protected_environment() {
+    let unsigned = candidate_job("macos_unsigned");
+    assert!(unsigned.contains("if: needs.preflight.outputs.signed_macos != 'true'"));
+    assert!(unsigned.contains("name: candidate-unsigned-part-macos-aarch64"));
+    let sign = candidate_job("macos_sign");
+    assert!(sign.contains("if: needs.preflight.outputs.signed_macos == 'true'"));
+    assert!(sign.contains("environment: release-signing"));
+    assert!(sign.contains("./scripts/sign-macos-release.sh"));
+    assert!(sign.contains("required release-signing value is missing"));
+    let step = sign
+        .split_once("Sign, notarize, staple, assess, then package")
+        .map(|(_, tail)| tail)
+        .expect("the ordered macOS signing step");
+    let staple = step
+        .find("stapler staple")
+        .expect("staple before packaging");
+    let assess = step
+        .find("spctl -a -t exec")
+        .expect("Gatekeeper assessment");
+    let package = step
+        .find("ditto -c -k \"$work\" \"$signed_zip\"")
+        .expect("packaging after staple");
+    assert!(staple < assess && assess < package);
+    assert!(sign.contains("provenance[\"channel\"] = \"release\""));
+    assert!(CANDIDATE.contains(
+        "(needs.preflight.outputs.signed_macos == 'true' && needs.macos_sign.result == 'success') ||"
+    ));
+    assert!(CANDIDATE.contains(
+        "(needs.preflight.outputs.signed_macos != 'true' && needs.macos_unsigned.result == 'success'))"
+    ));
+}
+
 #[test]
 fn candidate_does_not_install_or_run_a_hosted_compiler_wrapper() {
     let candidate = include_str!("../.github/workflows/candidate.yml");
@@ -3287,7 +3323,9 @@ fn download_breaks_on_rerun(aggregate: &str, step_name: &str) -> bool {
 #[test]
 fn candidate_runtime_installs_one_sealed_chassis_product() {
     let pack = candidate_job("chassis_pack");
-    assert!(pack.contains("needs: [preflight, stage_parts, windows_unsigned, windows_sign]"));
+    assert!(pack.contains(
+        "needs: [preflight, stage_parts, windows_unsigned, windows_sign, macos_unsigned, macos_sign]"
+    ));
     assert!(pack.contains("pattern: candidate-part-*"));
     assert!(pack.contains("python3 scripts/chassis-candidate-pack.py"));
     assert!(pack.contains(
@@ -3304,7 +3342,7 @@ fn candidate_runtime_installs_one_sealed_chassis_product() {
     let runtime = candidate_job("runtime");
     assert!(
         runtime.contains(
-            "needs: [preflight, stage_parts, windows_unsigned, windows_sign, chassis_pack]"
+            "needs: [preflight, stage_parts, windows_unsigned, windows_sign, macos_unsigned, macos_sign, chassis_pack]"
         )
     );
     assert!(runtime.contains("needs.chassis_pack.result == 'success'"));
