@@ -291,8 +291,17 @@ jobs:
           [[ "$(jq -r .status <<<"$result")" == Accepted ]]
           jq -r .id <<<"$result" >notarization-id.txt
           rm -f work/AgenTerm.app.zip
-          xcrun stapler staple work/AgenTerm.app
-          xcrun stapler validate work/AgenTerm.app
+          # Same CloudKit ticket-fetch flake as the Candidate lane; retry it.
+          stapled=false
+          for delay in 0 20 40 80 160 300; do
+            sleep "$delay"
+            if xcrun stapler staple work/AgenTerm.app &&
+              xcrun stapler validate work/AgenTerm.app; then
+              stapled=true
+              break
+            fi
+          done
+          [[ "$stapled" == true ]] || { echo "stapling failed after retries" >&2; exit 1; }
           # The offline Gatekeeper verdict. This is the assertion that the
           # current unsigned-preview channel cannot make at all.
           spctl -a -t exec -vv work/AgenTerm.app 2>&1 | tee spctl.txt

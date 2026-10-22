@@ -601,8 +601,21 @@ jobs:
             echo "$result"
             [[ "$(jq -r .status <<<"$result")" == Accepted ]]
             rm -f "$work/AgenTerm.app.zip"
-            xcrun stapler staple "$work/AgenTerm.app"
-            xcrun stapler validate "$work/AgenTerm.app"
+            # stapler fetches the ticket from Apple's CloudKit endpoint, which
+            # intermittently drops hosted-runner connections right after an
+            # Accepted verdict (NSURLErrorDomain -1005, error 68; Candidate
+            # 39827814162 attempts 1 and 3). Retry with backoff; the ticket
+            # itself is never optional.
+            stapled=false
+            for delay in 0 20 40 80 160 300; do
+              sleep "$delay"
+              if xcrun stapler staple "$work/AgenTerm.app" &&
+                xcrun stapler validate "$work/AgenTerm.app"; then
+                stapled=true
+                break
+              fi
+            done
+            [[ "$stapled" == true ]] || { echo "stapling failed after retries" >&2; exit 1; }
             spctl -a -t exec -vv "$work/AgenTerm.app" 2>&1 | tee "spctl-$arch.txt"
             grep -q 'accepted' "spctl-$arch.txt"
             grep -q 'source=Notarized Developer ID' "spctl-$arch.txt"
