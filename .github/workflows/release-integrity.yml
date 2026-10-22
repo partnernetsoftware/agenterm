@@ -73,6 +73,9 @@ jobs:
               .qualification.pre_push_check.name // empty
             ' "$manifest"
             jq -r '.unsigned_macos_readmes[].name' "$manifest"
+            # A signed Windows Candidate seals its signing receipt as a public
+            # asset (first published with v0.1.20); unsigned ones declare "".
+            jq -r '.windows_signing.receipt.name // "" | select(. != "")' "$manifest"
             basename "$manifest"
             echo releases.json
           } | sort >"$expected"
@@ -143,6 +146,17 @@ jobs:
                 ] | sort_by(.name)
               )
             ' "$release/releases.json" >/dev/null
+          signing_receipt="$(jq -r '.windows_signing.receipt.name // ""' "$manifest")"
+          if [[ -n "$signing_receipt" ]]; then
+            [[ "$signing_receipt" == windows-signing-receipt.json ]]
+            [[ "$(jq -r .windows_signing.mode "$manifest")" == required ]]
+            [[ "$(sha256sum "$release/$signing_receipt" | cut -d' ' -f1)" == \
+              "$(jq -er .windows_signing.receipt.sha256 "$manifest")" ]]
+            [[ "$(stat -c %s "$release/$signing_receipt")" == \
+              "$(jq -er .windows_signing.receipt.size "$manifest")" ]]
+            [[ "$(jq -r .source_sha "$release/$signing_receipt")" == "$source_sha" ]]
+            [[ "$(jq -r .release_eligible "$release/$signing_receipt")" == true ]]
+          fi
           sbom_name="$(jq -r .sbom.name "$manifest")"
           receipt_name="$(jq -r .qualification.name "$manifest")"
           [[ "$(sha256sum "$release/$sbom_name" | cut -d' ' -f1)" == \
