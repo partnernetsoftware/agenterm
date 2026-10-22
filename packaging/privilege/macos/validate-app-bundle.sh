@@ -15,9 +15,9 @@ HELPER="$BUNDLE/Contents/Resources/com.partnernetsoftware.agenterm.cu.privilege"
 APP_PROVIDER="$BUNDLE/Contents/MacOS/agenterm-cu-provider.dylib"
 HELPER_PROVIDER="$BUNDLE/Contents/Resources/agenterm-cu-provider.dylib"
 
-python3 - "$MANIFEST" "$BUNDLE" "$PLIST" "$HELPER" "$APP_PROVIDER" "$HELPER_PROVIDER" <<'PY'
+python3 - "$MANIFEST" "$BUNDLE" "$PLIST" "$HELPER" "$APP_PROVIDER" "$HELPER_PROVIDER" "$MODE" <<'PY'
 import json, os, plistlib, stat, sys
-manifest_path, bundle, plist_path, helper, app_provider, helper_provider = sys.argv[1:]
+manifest_path, bundle, plist_path, helper, app_provider, helper_provider, mode = sys.argv[1:]
 with open(manifest_path, encoding="utf-8") as stream:
     m = json.load(stream)
 if m.get("schema_version") != 1:
@@ -110,11 +110,17 @@ with open(os.path.join(bundle, "Contents/Resources/authorization-right.plist"), 
     right = plistlib.load(stream)
 if right.get("class") != "user" or right.get("group") != "admin" or right.get("shared") is not False or right.get("timeout") != 0:
     raise SystemExit("macos_provider_right_rule")
-if os.path.getsize(helper) != os.path.getsize(os.path.join(bundle, "Contents/MacOS/agenterm-cu")):
-    raise SystemExit("macos_provider_helper_bytes")
-with open(helper, "rb") as a, open(os.path.join(bundle, "Contents/MacOS/agenterm-cu"), "rb") as b:
-    if a.read() != b.read():
+# Byte equality between the helper and agenterm-cu can only hold BEFORE
+# signing: the two are signed with different identifiers and entitlements,
+# so their signed bytes necessarily diverge. The pre-signature --layout run
+# proves "same program" on the exact bytes about to be signed; the signed
+# court below proves each one's Developer ID designated requirement.
+if mode == "--layout":
+    if os.path.getsize(helper) != os.path.getsize(os.path.join(bundle, "Contents/MacOS/agenterm-cu")):
         raise SystemExit("macos_provider_helper_bytes")
+    with open(helper, "rb") as a, open(os.path.join(bundle, "Contents/MacOS/agenterm-cu"), "rb") as b:
+        if a.read() != b.read():
+            raise SystemExit("macos_provider_helper_bytes")
 PY
 
 for plist in "$BUNDLE/Contents/Info.plist" "$PLIST" \

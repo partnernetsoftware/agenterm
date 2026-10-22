@@ -40,6 +40,31 @@ EXPECTED_PLATFORMS = {"windows-x86_64", "windows-aarch64"}
 EXPECTED_ARCHES = {"windows-x86_64": "x86_64", "windows-aarch64": "aarch64"}
 
 
+def _manifest_pe_counts() -> dict[str, int]:
+    """Signed-PE count per Windows platform, derived from scripts/artifacts.json.
+
+    The manifest is the single authority for the signing set; a hardcoded
+    count here silently rejected the first live twelve-file signing run
+    (W1 39664002396) after the set grew past the old ten.
+    """
+    manifest = json.loads(
+        (Path(__file__).resolve().parent / "artifacts.json").read_text(encoding="utf-8")
+    )
+    counts: dict[str, int] = {}
+    for platform in manifest["platforms"]:
+        if platform.get("os") != "windows":
+            continue
+        key = f"windows-{platform['arch']}"
+        counts[key] = len(platform.get("executables", [])) + len(platform.get("libraries", []))
+    if set(counts) != EXPECTED_PLATFORMS or any(count <= 0 for count in counts.values()):
+        raise ValueError("manifest does not declare both Windows signing platforms")
+    return counts
+
+
+MANIFEST_PE_COUNTS = _manifest_pe_counts()
+EXPECTED_ASSET_COUNT = sum(MANIFEST_PE_COUNTS.values())
+
+
 def load(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(value, dict):
@@ -132,7 +157,7 @@ def audit(
             raise ValueError("qualification upstream Candidate identity invalid")
     elif upstream is not None:
         raise ValueError("release-eligible receipt must not claim an upstream Candidate")
-    if receipt.get("platform_count") != 2 or receipt.get("asset_count") != 10:
+    if receipt.get("platform_count") != 2 or receipt.get("asset_count") != EXPECTED_ASSET_COUNT:
         raise ValueError("signed count mismatch")
     platforms = receipt.get("platforms")
     if not isinstance(platforms, dict) or set(platforms) != EXPECTED_PLATFORMS:
@@ -160,7 +185,7 @@ def audit(
     if run["id"] <= 0 or run["attempt"] <= 0:
         raise ValueError("signing run identity invalid")
     assets = receipt.get("assets")
-    if not isinstance(assets, dict) or len(assets) != 10:
+    if not isinstance(assets, dict) or len(assets) != EXPECTED_ASSET_COUNT:
         raise ValueError("signed asset set mismatch")
     for name, row in assets.items():
         if not isinstance(row, dict) or row.get("path") != name:
@@ -191,7 +216,7 @@ def self_test() -> None:
         archive_root = root / "archives"
         assets: dict[str, Any] = {}
         for platform in sorted(EXPECTED_PLATFORMS):
-            for index in range(5):
+            for index in range(MANIFEST_PE_COUNTS[platform]):
                 relative = f"{platform}/fixture-{index}.exe"
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -238,7 +263,7 @@ def self_test() -> None:
             "timestamp_digest": "SHA256",
             "release_eligible": False,
             "platform_count": 2,
-            "asset_count": 10,
+            "asset_count": EXPECTED_ASSET_COUNT,
             "run": {"id": 1, "attempt": 1},
             "upstream": {"run_id": 2, "run_attempt": 1},
             "platforms": platforms,

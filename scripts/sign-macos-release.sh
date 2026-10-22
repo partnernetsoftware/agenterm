@@ -82,6 +82,10 @@ done
 VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$ROOT/Cargo.toml" | head -n 1)"
 "$ROOT/packaging/privilege/macos/stage-app-bundle.sh" \
   "$ARCH" "$BIN_DIR" "$APP_BUNDLE" "$VERSION"
+# Prove the layout invariants — the helper being byte-identical to
+# agenterm-cu among them — on the exact pre-signature bundle; the signed
+# court afterwards can no longer compare those bytes.
+"$ROOT/packaging/privilege/macos/validate-app-bundle.sh" --layout "$APP_BUNDLE"
 
 # Sign every nested code object before sealing the outer app. The helper gets
 # its fixed identifier; no certificate or Team identifier is stored in source.
