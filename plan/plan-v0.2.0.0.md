@@ -19,10 +19,16 @@ Contract partner: MiniCon `plan/plan-hostif-v1.md`, implemented in MiniCon
 
 ## Owner intent (do not drift)
 
-1. agenterm.com is a mini GUI (wry+tao). It checks whether MiniCon is present
-   and current, asks, and with consent downloads the right MiniCon for this
-   machine, then opens AgenTerm's own assistant UI.
-2. Later, AgenTerm becomes the plugin & app market on top of MiniCon.
+1. (Revised 2026-10-24.) `agenterm.com` is AgenTerm's **only** release
+   asset: a cross-ISA APE built on MiniCon's `minicon.com` scheme (cosmocc
+   trampoline + six native cells). It is a mini entry and the manager of the
+   MiniCon series — list, install, update, roll back, remove and start
+   MiniCon products with consent. Most features are carried by MiniCon
+   clients; AgenTerm no longer ships its own terminal, computer-use, script
+   engine or Control Center. This replaces the earlier wry+tao launcher with
+   its own assistant UI.
+2. Later, AgenTerm becomes the plugin & app market on top of MiniCon; the
+   manager's product catalog is its seed.
 3. Whether the MiniCon core embeds unisa is undecided (waits on unisacc). That
    decision shapes the market, so **nothing in the launcher may depend on it**.
 
@@ -33,7 +39,7 @@ extraction (CU, script engines, VNC, SQL) are **parked** until the unisa
 decision; see "Parked" below. They are not milestones of this version.
 
 ```text
-v0.2.0.0 — agenterm.com finds/obtains a verified MiniCon and opens the assistant UI
+v0.2.0.0 — single-asset agenterm.com manages and starts verified MiniCon-series products
 ├─ M0 archive: index 0.1.x plans/PRD as reference; no deletions
 └─ L0–L6 launcher (plan-v0.2.0.0-launcher.md)
 ```
